@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Packet Journey Visualizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Figtree:wght@400;600&display=swap">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="bar">
+      <h1>Packet Journey Visualizer</h1>
+      <button id="theme" class="ghost" type="button">Light / dark</button>
+    </div>
+    <p>See every stop your data makes on the way to a website.</p>
+    <form id="trace-form" autocomplete="off">
+      <label for="target" class="sr-only">Domain or IP address</label>
+      <input id="target" type="text" placeholder="google.com or 8.8.8.8" value="google.com" required>
+      <button id="trace-btn" type="submit">Trace route</button>
+    </form>
+    <div class="chips" id="quick" aria-label="Quick picks"></div>
+    <p id="message" role="status"></p>
+  </header>
+
+  <main id="results" hidden>
+    <section class="stats" aria-label="Summary">
+      <div class="stat"><span class="value" id="s-hops">-</span><span class="label">Hops</span></div>
+      <div class="stat"><span class="value" id="s-avg">-</span><span class="label">Average latency</span></div>
+      <div class="stat"><span class="value" id="s-min">-</span><span class="label">Fastest hop</span></div>
+      <div class="stat"><span class="value" id="s-max">-</span><span class="label">Slowest hop</span></div>
+      <div class="stat"><span class="value" id="s-loss">-</span><span class="label">Packet loss</span></div>
+      <div class="stat"><span class="value" id="s-status">-</span><span class="label">Network status</span></div>
+      <div class="stat wide"><span class="value" id="s-ip">-</span><span class="label">Resolved IP (DNS)</span></div>
+    </section>
+
+    <div class="layout">
+      <section class="panel">
+        <div class="head">
+          <h2 id="route-title">Journey</h2>
+          <div class="tools">
+            <button id="replay" class="ghost" type="button">Replay</button>
+            <button id="export" class="ghost" type="button">Export JSON</button>
+          </div>
+        </div>
+        <ol class="route" id="route"></ol>
+        <div class="detail" id="detail">Select a station to see its details.</div>
+      </section>
+      <section class="panel">
+        <h2>Latency per hop</h2>
+        <div class="chart-box"><canvas id="latency-chart"></canvas></div>
+        <p class="note">Gaps in the line are hops that did not reply (timeouts). Many routers hide on purpose, so this is normal.</p>
+        <div class="legend"><span class="dot good"></span>under 30 ms <span class="dot warn"></span>30-100 ms <span class="dot bad"></span>over 100 ms</div>
+      </section>
+    </div>
+
+    <section class="panel history">
+      <h2>Recent traces</h2>
+      <div class="chips" id="history"><span class="note">Nothing yet. Run a trace.</span></div>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="/static/script.js"></script>
+</body>
+</html>
