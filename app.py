@@ -1,6 +1,11 @@
+
 from flask import Flask, request, jsonify
 
 from database import initialize_database, save_trace, get_history
+from network.resolver import resolve_domain, ResolutionError
+from network.traceroute import traceroute, TracerouteError
+from network.ping import ping_host
+from analysis.analyzer import analyze_trace
 
 
 app = Flask(__name__)
@@ -45,102 +50,47 @@ def trace():
 
 
     # --------------------------------------------------
-    # TEMPORARY MOCK DATA
-    # This will later be replaced by Member 1
+    # MEMBER 1 - NETWORK DATA COLLECTION
     # --------------------------------------------------
 
-    network_data = {
+    try:
 
-        "destination": destination,
+        # Resolve destination to IPv4 address
+        resolution = resolve_domain(destination)
 
-        "resolved_ip": "142.250.195.14",
+        if resolution["resolved_ip"] is None:
+            return jsonify({
+                "error": resolution["error"]
+            }), 400
 
-        "hops": [
+        resolved_ip = resolution["resolved_ip"]
 
-            {
-                "hop_number": 1,
-                "ip": "192.168.1.1",
-                "latency": 2,
-                "status": "success"
-            },
+        # Run traceroute and collect hops
+        # Run ping to collect packet-level statistics
+        ping = ping_host(resolved_ip)
 
-            {
-                "hop_number": 2,
-                "ip": "10.20.0.1",
-                "latency": 8,
-                "status": "success"
-            },
+        # Run traceroute and collect hops
+        hops = traceroute(resolved_ip)
 
-            {
-                "hop_number": 3,
-                "ip": "172.16.2.1",
-                "latency": 15,
-                "status": "success"
-            },
+        network_data = {
+            "destination": destination,
+            "resolved_ip": resolved_ip,
+            "ping": ping,
+            "hops": hops
+        }
 
-            {
-                "hop_number": 4,
-                "ip": "142.250.195.14",
-                "latency": 21,
-                "status": "success"
-            }
-        ]
-    }
+    except (ResolutionError, TracerouteError) as exc:
+
+        return jsonify({
+            "error": str(exc)
+        }), 500
 
 
     # --------------------------------------------------
-    # TEMPORARY ANALYSIS
-    # This will later be replaced by Member 2
+    # MEMBER 2 - NETWORK ANALYSIS
     # --------------------------------------------------
 
-    latencies = [
-        hop["latency"]
-        for hop in network_data["hops"]
-        if hop["latency"] is not None
-    ]
-
-    total_hops = len(network_data["hops"])
-
-    if latencies:
-
-        average_latency = sum(latencies) / len(latencies)
-
-        min_latency = min(latencies)
-
-        max_latency = max(latencies)
-
-    else:
-
-        average_latency = 0
-        min_latency = 0
-        max_latency = 0
-
-
-    timeout_count = sum(
-        1
-        for hop in network_data["hops"]
-        if hop["status"] == "timeout"
-    )
-
-    packet_loss = (
-        timeout_count / total_hops * 100
-        if total_hops > 0
-        else 0
-    )
-
-
-    statistics = {
-
-        "total_hops": total_hops,
-
-        "average_latency": round(average_latency, 2),
-
-        "packet_loss": round(packet_loss, 2),
-
-        "min_latency": min_latency,
-
-        "max_latency": max_latency
-    }
+    statistics = analyze_trace(network_data)
 
 
     # --------------------------------------------------
