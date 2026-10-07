@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify
 
 from database import initialize_database, save_trace, get_history
@@ -48,6 +47,16 @@ def trace():
             "error": "Destination is required"
         }), 400
 
+    # --------------------------------------------------
+    # OPERATION / MODE
+    # --------------------------------------------------
+
+    operation = data.get("mode", "traceroute").lower()
+
+    if operation not in ["ping", "traceroute"]:
+        return jsonify({
+            "error": "Invalid mode. Use 'ping' or 'traceroute'."
+        }), 400
 
     # --------------------------------------------------
     # MEMBER 1 - NETWORK DATA COLLECTION
@@ -65,19 +74,38 @@ def trace():
 
         resolved_ip = resolution["resolved_ip"]
 
-        # Run traceroute and collect hops
-        # Run ping to collect packet-level statistics
-        ping = ping_host(resolved_ip)
+        # ----------------------------------------------
+        # PING MODE
+        # ----------------------------------------------
 
-        # Run traceroute and collect hops
-        hops = traceroute(resolved_ip)
+        if operation == "ping":
 
-        network_data = {
-            "destination": destination,
-            "resolved_ip": resolved_ip,
-            "ping": ping,
-            "hops": hops
-        }
+            ping = ping_host(resolved_ip)
+
+            network_data = {
+                "destination": destination,
+                "resolved_ip": resolved_ip,
+                "ping": ping,
+                "hops": []
+            }
+
+        # ----------------------------------------------
+        # TRACEROUTE MODE
+        # ----------------------------------------------
+
+        else:
+
+            hops = traceroute(resolved_ip)
+
+            network_data = {
+                "destination": destination,
+                "resolved_ip": resolved_ip,
+                "ping": {
+                    "status": "not_run",
+                    "error": "Ping was not selected."
+                },
+                "hops": hops
+            }
 
     except (ResolutionError, TracerouteError) as exc:
 
@@ -85,6 +113,11 @@ def trace():
             "error": str(exc)
         }), 500
 
+    except OSError as exc:
+
+        return jsonify({
+            "error": str(exc)
+        }), 500
 
     # --------------------------------------------------
     # MEMBER 2 - NETWORK ANALYSIS
@@ -92,29 +125,30 @@ def trace():
 
     statistics = analyze_trace(network_data)
 
-
     # --------------------------------------------------
     # COMBINE NETWORK + ANALYSIS DATA
     # --------------------------------------------------
 
     result = {
 
+        "operation": operation,
+
         "destination": network_data["destination"],
 
         "resolved_ip": network_data["resolved_ip"],
+
+        "ping": network_data["ping"],
 
         "hops": network_data["hops"],
 
         "statistics": statistics
     }
 
-
     # --------------------------------------------------
     # SAVE TO SQLITE
     # --------------------------------------------------
 
     save_trace(result)
-
 
     # --------------------------------------------------
     # SEND RESULT TO FRONTEND
