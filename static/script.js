@@ -1,7 +1,7 @@
 // ===== SETTINGS: change these when Member 3's backend is ready =====
 const API_URL = "/trace";       // POST {destination, mode} -> trace JSON
 const HISTORY_URL = "/history"; // GET  -> list of past traces
-const USE_MOCK = true;          // true = fake data. Set to false to use the real backend.
+const USE_MOCK = false;          // true = fake data. Set to false to use the real backend.
 // ===================================================================
 
 const $ = id => document.getElementById(id);
