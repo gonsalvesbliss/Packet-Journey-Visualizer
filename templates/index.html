@@ -14,54 +14,90 @@
       <h1>Packet Journey Visualizer</h1>
       <button id="theme" class="ghost" type="button">Light / dark</button>
     </div>
-    <p>See every stop your data makes on the way to a website.</p>
+    <p class="tagline">See what happens to your data on the way to a website.</p>
+
     <form id="trace-form" autocomplete="off">
       <label for="target" class="sr-only">Domain or IP address</label>
       <input id="target" type="text" placeholder="google.com or 8.8.8.8" value="google.com" required>
-      <button id="trace-btn" type="submit">Trace route</button>
+      <button id="trace-btn" type="submit">Run Traceroute</button>
     </form>
+
+    <fieldset class="modes">
+      <legend>Choose a test</legend>
+      <label class="mode"><input type="radio" name="mode" value="traceroute" checked>
+        <span class="mode-body"><strong>Traceroute</strong>
+        <span>Shows the network path to the destination, hop by hop, and measures the latency at each responding hop.</span></span></label>
+      <label class="mode"><input type="radio" name="mode" value="ping">
+        <span class="mode-body"><strong>Ping</strong>
+        <span>Checks whether the destination is reachable and measures the response time.</span></span></label>
+    </fieldset>
+
+    <details class="compare">
+      <summary>What is the difference between Ping and Traceroute?</summary>
+      <table>
+        <tr><th></th><th>Ping</th><th>Traceroute</th></tr>
+        <tr><td>Question it answers</td><td>Can I reach the destination?</td><td>Which routers does my data pass through?</td></tr>
+        <tr><td>Measures</td><td>Total response time</td><td>Latency at each hop</td></tr>
+        <tr><td>Focus</td><td>The destination only</td><td>The routers in between</td></tr>
+        <tr><td>Loss shown as</td><td>Packet loss %</td><td>Hops that did not reply</td></tr>
+      </table>
+    </details>
+
     <div class="chips" id="quick" aria-label="Quick picks"></div>
     <p id="message" role="status"></p>
   </header>
 
   <main id="results" hidden>
-    <section class="stats" aria-label="Summary">
-      <div class="stat"><span class="value" id="s-hops">-</span><span class="label">Hops</span></div>
-      <div class="stat"><span class="value" id="s-avg">-</span><span class="label">Average latency</span></div>
-      <div class="stat"><span class="value" id="s-min">-</span><span class="label">Fastest hop</span></div>
-      <div class="stat"><span class="value" id="s-max">-</span><span class="label">Slowest hop</span></div>
-      <div class="stat"><span class="value" id="s-loss">-</span><span class="label">Packet loss</span></div>
-      <div class="stat"><span class="value" id="s-status">-</span><span class="label">Network status</span></div>
-      <div class="stat wide"><span class="value" id="s-ip">-</span><span class="label">Resolved IP (DNS)</span></div>
+    <section class="stats" id="stats" aria-label="Summary"></section>
+
+    <section class="panel" id="ping-view" hidden>
+      <h2>Ping result</h2>
+      <div id="ping-banner" class="banner"></div>
+      <p class="note">Ping only tests the destination. To see the route and which router is slow, switch to Traceroute.</p>
     </section>
 
-    <div class="layout">
-      <section class="panel">
+    <div class="layout" id="trace-view">
+      <!-- Route map: full width, the main visual -->
+      <section class="panel wide-panel">
         <div class="head">
-          <h2 id="route-title">Journey</h2>
+          <h2>Latency graph</h2>
           <div class="tools">
             <button id="replay" class="ghost" type="button">Replay</button>
             <button id="export" class="ghost" type="button">Export JSON</button>
           </div>
         </div>
-        <ol class="route" id="route"></ol>
-        <div class="detail" id="detail">Select a station to see its details.</div>
+        <div class="map-box" id="map"></div>
+        <div class="legend">
+          <span class="key solid"></span>route (joins every hop that replied)
+          <span class="x">&times;</span>timeout branch: this router did not reply
+        </div>
+        <p class="note"><strong>A timeout is a missing reply from one router, not the end of the journey.</strong> The red branch marks the silent hop, while the solid line carries on to the next router that replied. A timeout has no measurement, so the position of the &times; is only a marker, not a latency.</p>
       </section>
+
       <section class="panel">
-        <h2>Latency per hop</h2>
-        <div class="chart-box"><canvas id="latency-chart"></canvas></div>
-        <p class="note">Gaps in the line are hops that did not reply (timeouts). Many routers hide on purpose, so this is normal.</p>
-        <div class="legend"><span class="dot good"></span>under 30 ms <span class="dot warn"></span>30-100 ms <span class="dot bad"></span>over 100 ms</div>
+        <h2 id="route-title">Journey</h2>
+        <ol class="route" id="route"></ol>
+        <p class="note" id="route-note"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Hop details</h2>
+        <div class="detail" id="detail">Select a station to see its details.</div>
+        <div class="legend">
+          <span class="dot good"></span>fast (under 30 ms)
+          <span class="dot warn"></span>medium
+          <span class="dot bad"></span>slow (100 ms or more)
+        </div>
+        <p class="note">For security, router IP addresses are not shown.</p>
       </section>
     </div>
 
     <section class="panel history">
       <h2>Recent traces</h2>
-      <div class="chips" id="history"><span class="note">Nothing yet. Run a trace.</span></div>
+      <div class="chips" id="history"><span class="note">Nothing yet. Run a test.</span></div>
     </section>
   </main>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="/static/script.js"></script>
 </body>
 </html>
