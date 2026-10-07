@@ -68,10 +68,12 @@
         </div>
         <div class="map-box" id="map"></div>
         <div class="legend">
-          <span class="key solid"></span>route (joins every hop that replied)
-          <span class="x">&times;</span>timeout branch: this router did not reply
+          <span class="key solid"></span>route between hops that replied
+          <span class="key dashed" style="border-top-color:var(--bad)"></span>failed attempt (dead end)
+          <span class="x">&times;</span>router did not reply
+          <span class="key dashed alt"></span>alternate route taken
         </div>
-        <p class="note"><strong>A timeout is a missing reply from one router, not the end of the journey.</strong> The red branch marks the silent hop, while the solid line carries on to the next router that replied. A timeout has no measurement, so the position of the &times; is only a marker, not a latency.</p>
+        <p class="note"><strong>A timeout is a missing reply from one router, not the end of the journey.</strong> The packet tries the red path, gets no reply, then continues on an alternate route (amber) to the next router that answered. Traceroute cannot show the exact alternate path. The amber arc only shows that traffic got through. A timeout has no measurement, so the position of the &times; is only a marker, not a latency.</p>
       </section>
 
       <section class="panel">

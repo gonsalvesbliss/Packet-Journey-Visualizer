@@ -163,55 +163,141 @@ function showDetail(i) {
   $("detail").innerHTML = `<strong>Hop ${esc(h.hop_number)}</strong> replied in <strong>${esc(h.latency)} ms</strong>.${extra}`;
 }
 
-// ---------- latency graph (SVG) ----------
-// x = hop number, y = latency. The solid line joins every hop that replied, so the journey is never broken.
-// A silent hop gets its own column: a short dashed branch leaves the line and ends in a red cross.
-// The cross has no real latency, its height is only a placement.
+// ---------- latency graph (SVG) with reroute animation ----------
+let mapRun = 0;   // bumped on every render so an old animation stops when a new one starts
+
+// Draws `p` (0..1) of a path. dash = null -> solid line, number -> dashed line.
+function reveal(el, len, p, dash) {
+  if (!dash) { el.style.strokeDasharray = len; el.style.strokeDashoffset = len * (1 - p); return; }
+  const v = len * p; let a = [];
+  for (let pos = 0; pos < v; pos += 2 * dash) a.push(Math.min(dash, v - pos), dash);
+  if (!a.length) a = [0, len];
+  a[a.length - 1] = len + 10;                    // big final gap so the pattern doesn't repeat
+  el.style.strokeDasharray = a.join(" "); el.style.strokeDashoffset = 0;
+}
+
 function renderMap(hops) {
-  const n = hops.length, GAP = 100, L = 64, T = 36, PH = 230, B = 64;
+  const tok = ++mapRun;
+  const n = hops.length, GAP = 100, L = 64, T = 56, PH = 230, B = 64;
   const X = k => L + k * GAP, W = X(n) + 56, H = T + PH + B, base = T + PH;
   const lats = hops.filter(h => !isTimeout(h)).map(h => h.latency);
   const top = Math.max(20, Math.ceil(Math.max(...lats, 10) * 1.15 / 10) * 10);
   const Y = v => base - (v / top) * PH;
+  const pt = p => p.x + " " + p.y;
+
   const rep = [{ k: 0, x: X(0), y: Y(0) }];                       // origin = "You"
   hops.forEach((h, i) => { if (!isTimeout(h)) rep.push({ k: i + 1, x: X(i + 1), y: Y(h.latency), i }); });
 
-  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Latency graph with timeouts shown as branches off a continuous line">`;
-  for (let g = 0; g <= 4; g++) {                                   // grid + y labels
-    const v = (top / 4) * g, y = Y(v);
-    s += `<line x1="${L}" y1="${y}" x2="${W - 20}" y2="${y}" class="${g ? "m-grid" : "m-axis"}"/>
-          <text x="${L - 10}" y="${y + 4}" class="m-tick" text-anchor="end">${Math.round(v)}</text>`;
-  }
-  s += `<line x1="${L}" y1="${T - 10}" x2="${L}" y2="${base}" class="m-axis"/>
-        <text x="14" y="${T + PH / 2}" class="m-tick" text-anchor="middle" transform="rotate(-90 14 ${T + PH / 2})">Latency (ms)</text>`;
-
-  const path = rep.map((p, j) => (j ? "L" : "M") + p.x + " " + p.y).join(" ");
-  s += `<path d="${path}" class="m-line" fill="none"/>`;           // continuous journey line
-
-  // timeouts: branch off the previous replying hop, in their own column
+  // where each timeout node sits (just below the line)
+  const tpos = {};
   hops.forEach((h, i) => {
     if (!isTimeout(h)) return;
     const k = i + 1, x = X(k);
     const prev = [...rep].reverse().find(p => p.k < k), next = rep.find(p => p.k > k);
     const lineY = next ? prev.y + ((next.y - prev.y) * (x - prev.x)) / (next.x - prev.x) : prev.y;
-    let ty = lineY + 38; if (ty > base - 14) ty = lineY - 38;       // sit just below the line (or above if no room)
-    s += `<line x1="${prev.x}" y1="${prev.y}" x2="${x}" y2="${ty}" class="m-branch"/>
-          <circle cx="${x}" cy="${ty}" r="13" class="m-node m-t" style="stroke:var(--bad)"/>
-          <text x="${x}" y="${ty + 7}" class="m-x">&times;</text>
-          <text x="${x}" y="${ty + 30}" class="m-name" style="fill:var(--bad)">Timeout</text>`;
+    tpos[k] = { x, y: Math.min(lineY + 38, base - 14), i };
   });
 
-  rep.forEach(p => {                                               // replying hops
+  // ---- build the list of segments the packet will travel, in order ----
+  const segs = [];
+  for (let j = 1; j < rep.length; j++) {
+    const a = rep[j - 1], b = rep[j];
+    if (b.k === a.k + 1) { segs.push({ type: "main", d: `M${pt(a)} L${pt(b)}` }); continue; }
+    const ks = []; for (let k = a.k + 1; k < b.k; k++) ks.push(k);
+    segs.push({ type: "dead", ks, d: "M" + pt(a) + ks.map(k => ` L${tpos[k].x} ${tpos[k].y}`).join("") });
+    const cy = Math.max(Math.min(a.y, b.y) - 70, 10);
+    segs.push({ type: "alt", d: `M${pt(a)} Q${(a.x + b.x) / 2} ${cy} ${pt(b)}`,
+                mid: { x: (a.x + b.x) / 2, y: 0.25 * a.y + 0.5 * cy + 0.25 * b.y } });
+  }
+  const lastRep = rep[rep.length - 1];
+  if (lastRep.k < n) {                                             // timeouts at the very end, no way forward
+    const ks = []; for (let k = lastRep.k + 1; k <= n; k++) ks.push(k);
+    segs.push({ type: "dead", final: true, ks, d: "M" + pt(lastRep) + ks.map(k => ` L${tpos[k].x} ${tpos[k].y}`).join("") });
+  }
+
+  // ---- draw ----
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Latency graph: the packet hits a timeout, then takes an alternate route">`;
+  for (let g = 0; g <= 4; g++) {
+    const v = (top / 4) * g, y = Y(v);
+    s += `<line x1="${L}" y1="${y}" x2="${W - 20}" y2="${y}" class="${g ? "m-grid" : "m-axis"}"/>
+          <text x="${L - 10}" y="${y + 4}" class="m-tick" text-anchor="end">${Math.round(v)}</text>`;
+  }
+  s += `<line x1="${L}" y1="${T - 10}" x2="${L}" y2="${base}" class="m-axis"/>
+        <text x="14" y="${T + PH / 2}" class="m-tick" text-anchor="middle" transform="rotate(-90 14 ${T + PH / 2})">Latency (ms)</text>
+        <text id="m-status" x="${L + 8}" y="22" class="m-status"></text>`;
+
+  segs.forEach((g, i) => {
+    const cls = g.type === "main" ? "m-line" : g.type === "dead" ? "m-branch" : "m-altpath";
+    s += `<path id="seg${i}" d="${g.d}" class="${cls}" fill="none"/>`;
+    if (g.type === "alt") s += `<text id="altl${i}" x="${g.mid.x}" y="${g.mid.y - 8}" class="m-alt-label" style="opacity:0">alternate route</text>`;
+  });
+
+  Object.keys(tpos).forEach(k => {                                 // timeout nodes (dim until the packet gets there)
+    const t = tpos[k];
+    s += `<g id="tn${k}" style="opacity:.3">
+            <circle cx="${t.x}" cy="${t.y}" r="13" class="m-node m-t" style="stroke:var(--bad)"/>
+            <text x="${t.x}" y="${t.y + 7}" class="m-x">&times;</text>
+            <text x="${t.x}" y="${t.y + 30}" class="m-name" style="fill:var(--bad)">Timeout</text>
+          </g>`;
+  });
+
+  rep.forEach(p => {
     const start = p.k === 0, dest = p.i === destIdx && !start, c = start ? "var(--line)" : speedColor(hops[p.i].latency);
     s += `<circle cx="${p.x}" cy="${p.y}" r="${start || dest ? 10 : 8}" class="m-node" style="stroke:${c}"/>`;
     if (!start) s += `<text x="${p.x}" y="${p.y - 16}" class="m-lat" style="fill:${c}">${esc(hops[p.i].latency)} ms</text>`;
   });
-  s += `<text x="${X(0)}" y="${base + 20}" class="m-name">You</text>`;   // x labels, one per hop slot
+  s += `<text x="${X(0)}" y="${base + 20}" class="m-name">You</text>`;
   hops.forEach((h, i) => { s += `<text x="${X(i + 1)}" y="${base + 20}" class="m-name"${isTimeout(h) ? ' style="fill:var(--bad)"' : ""}>${i === destIdx ? "Destination" : "Hop " + esc(h.hop_number)}</text>`; });
-
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
-    s += `<circle r="7" class="m-packet"><animateMotion dur="${Math.max(3, n * 0.8)}s" fill="freeze" path="${path}"/></circle>`;
+  s += `<circle id="pk" r="7" cx="${rep[0].x}" cy="${rep[0].y}" class="m-packet"/>`;
   $("map").innerHTML = s + "</svg>";
+
+  // ---- animate ----
+  const svg = $("map").querySelector("svg"), pk = svg.querySelector("#pk"), st = svg.querySelector("#m-status");
+  const say = t => { st.textContent = t; };
+  const mv = p => { pk.setAttribute("cx", p.x); pk.setAttribute("cy", p.y); };
+  const dashOf = g => g.type === "main" ? null : g.type === "dead" ? 5 : 8;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const tween = (dur, fn) => new Promise(res => {
+    const t0 = performance.now();
+    (function f() {
+      if (tok !== mapRun) return res(false);
+      const p = Math.min(1, (performance.now() - t0) / dur);
+      fn(p); p < 1 ? requestAnimationFrame(f) : res(true);
+    })();
+  });
+  const finalMsg = () => destIdx >= 0 ? "Packet reached the destination." : "Trace finished.";
+
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {   // static version, everything visible
+    segs.forEach((g, i) => { const el = svg.querySelector("#seg" + i); reveal(el, el.getTotalLength(), 1, dashOf(g)); if (g.type === "alt") svg.querySelector("#altl" + i).style.opacity = 1; });
+    Object.keys(tpos).forEach(k => svg.querySelector("#tn" + k).style.opacity = 1);
+    pk.remove(); say("Timeouts are shown as red branches; the amber arc is the alternate route."); return;
+  }
+
+  segs.forEach((g, i) => { const el = svg.querySelector("#seg" + i); reveal(el, el.getTotalLength(), 0, dashOf(g)); });
+
+  (async () => {
+    say("Sending packet...");
+    for (let i = 0; i < segs.length; i++) {
+      const g = segs[i], el = svg.querySelector("#seg" + i), len = el.getTotalLength(), dash = dashOf(g);
+      if (g.type === "dead") say("Hop " + hops[g.ks[0] - 1].hop_number + " is not replying...");
+      if (g.type === "alt") say("Rerouting: taking an alternate path...");
+      if (!await tween(Math.max(450, len * 5), p => { reveal(el, len, p, dash); mv(el.getPointAtLength(p * len)); })) return;
+
+      if (g.type === "dead") {
+        g.ks.forEach(k => svg.querySelector("#tn" + k).style.opacity = 1);
+        pk.classList.add("lost");
+        say("Timed out. No reply from Hop " + hops[g.ks[g.ks.length - 1] - 1].hop_number + ".");
+        await sleep(1200); if (tok !== mapRun) return;
+        if (g.final) { say("No later hop replied, so the rest of the path is unknown."); return; }
+        say("Packet lost on this path. Backing up...");
+        if (!await tween(450, p => mv(el.getPointAtLength((1 - p) * len)))) return;
+        pk.classList.remove("lost");
+        await sleep(300); if (tok !== mapRun) return;
+      }
+      if (g.type === "alt") svg.querySelector("#altl" + i).style.opacity = 1;
+    }
+    say(finalMsg());
+  })();
 }
 
 // ---------- history ----------
